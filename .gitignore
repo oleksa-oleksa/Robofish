@@ -2,3 +2,6 @@
 .idea
 venv
 Pipfile
+.ipynb_checkpoints/
+data/
+output/
