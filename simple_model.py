@@ -5,6 +5,15 @@ from pathlib import Path
 import fish_models
 import matplotlib.pyplot as plt
 
+
+class SimpleForwardModel(fish_models.gym_interface.AbstractRaycastBasedModel):
+    def choose_action(self, view: np.ndarray):
+        # Return speed and turn from view
+        speed = np.random.random() * 20.
+        turn = (np.random.random() - 0.5) * 5.
+        return speed, turn
+
+
 # Lets use the random model from above
 raycast = fish_models.gym_interface.Raycast(
             n_wall_raycasts=5,
