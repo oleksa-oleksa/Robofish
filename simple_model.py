@@ -14,6 +14,8 @@ class SimpleForwardModel(fish_models.gym_interface.AbstractRaycastBasedModel):
         return speed, turn
 
 
+model = SimpleForwardModel()
+
 # Lets use the random model from above
 raycast = fish_models.gym_interface.Raycast(
             n_wall_raycasts=5,
@@ -23,6 +25,10 @@ raycast = fish_models.gym_interface.Raycast(
             world_bounds=([-50, -50], [50, 50]),
         )
 
+generator = fish_models.gym_interface.TrackGeneratorGymRaycast(
+    model, raycast, [100,100], 25
+)
+track = generator.create_track(n_guppies=2, trackset_len=1000)
 
 data_folder = Path("data/live_female_female/train")
 
