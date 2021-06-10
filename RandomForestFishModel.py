@@ -20,7 +20,9 @@ class RandomForestFishModel(fish_models.gym_interface.AbstractRaycastBasedModel)
             of the samples used when building trees
 
         """
-        self.clf = RandomForestRegressor(n_estimators=255, max_depth=None, random_state=None)
+        self.clf = RandomForestRegressor(
+            n_estimators=255, max_depth=None, random_state=None
+        )
 
     def choose_action(self, view: np.ndarray):
         """
@@ -82,6 +84,3 @@ class RandomForestFishModel(fish_models.gym_interface.AbstractRaycastBasedModel)
         self.clf.fit(views, actions)
 
         print("Fit done")
-
-
-

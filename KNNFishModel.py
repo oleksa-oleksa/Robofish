@@ -92,7 +92,7 @@ class KNNFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
         # getting distance for each prticular data point
         distances = self.euclidean_distance(self.X, view)
         # getting indexes of k first minimal elements
-        idx = np.argpartition(distances, self.k)[:self.k]
+        idx = np.argpartition(distances, self.k)[: self.k]
         # taking labels (views) by indexes
         votes = self.y[idx]
         # mean for speed and turn
