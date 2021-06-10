@@ -1,112 +1,100 @@
 import fish_models
-from sklearn.cluster import MeanShift
-import sklearn.cluster as cluster
-import sklearn.metrics as mt
 import numpy as np
-import random
 
-class MeanShiftFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
+
+class KNNFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
     """
-    Mean shift clustering using a flat kernel.
+    kNN classifier determines the class of a data point by majority voting principle.
 
-    MeanShift clustering aims to discover blobs in a smooth density of samples.
-    It is a centroid based algorithm, which works by updating candidates for centroids
-    to be the mean of the points within a given region. These candidates are then filtered
-    in a post-processing stage to eliminate near-duplicates to form the final set of centroids.
-
-    Labelling a new sample is performed by finding the nearest centroid for a given sample.
+    If k is set to n, the classes of n closest points are checked.
+    Prediction is done according to the majority class.
+    Similarly, kNN regression takes the mean value of n closest points.
     """
 
-    def __init__(self):
-        """
-        self.clustermodel : sklearn.cluster.MeanShift
-            Mean shift clustering using a flat kernel.
+    def __init__(self, k):
+        self.k = k
 
-        self.clusters : Array of all calculated clusters
-
-        NOTE: access to cluster centers with self.clustermodel.cluster_centers_
-
-        """
-        self.clustermodel = cluster.MeanShift(bandwidth=5, bin_seeding=True, max_iter=1)
-        self.clusters = {}
-        
     def choose_action(self, view: np.ndarray):
+
+        speed, turn = self.predict(view, self.k)
+
+        turn = self.avoid_walls(view, turn)
+
+        return speed, turn
+
+    def avoid_walls(self, view, turn):
         """
-        Call a function to a predict an action using
-        a raycast observation and a ML model
+        Forces to turn a fish in a given direction
+        if in a view's raycast of the walls
+        a wall in the front of a fish is detected to near
 
         Parameters
         ---------
-        view: numpy.ndarray
-            The view of the fish of lenght n + k,
-            consists of n_fish_bin values for fish
-            and k_wall_raycasts for the walls (here 5).
+        view : array_like
+            The observations of the virtual fish
+        turn : float
+            Turn predicted by a model that is to modify
 
         Returns
         ---------
-        speed, turn : float, float
-            Using a raycast observation and a ML model
-            the speed [cm/s] and turn [rad/s] is returned
+        turn : float
+            Original or modified turn depending on the wall distance
         """
-        action = self.predict_action(view)
-        return action[0][0], action[0][1]
-    
-    def predict_action(self, view: np.ndarray):
+
+        if view[6] > 0.9:
+            return 5 * np.pi
+        else:
+            return turn
+
+    def euclidean_distance(self, x_1, x_2):
         """
-         Measures the distance between data points to determine how data points are close.
+        Measures the distance between data points to determine how data points are close.
+        Euclidean distance is used for distance measurement and it is calculated
+        using the square of the difference between x and y coordinates of the points.
 
-         Parameters
-         ---------
-         view: numpy.ndarray
-             The view of the fish of lenght n + k,
-             consists of n_fish_bin values for fish
-             and k_wall_raycasts for the walls (here 5).
+        Parameters
+        ---------
+        x1, x2 : array_like
+            Elements to find the distance between.
 
-         Returns
-         ---------
-         Tuple[float, float]
-             Using a raycast observation and a ML model returns
-             the Tuple of speed [cm/s] and turn [rad/s]
-         """
-        clustermodel = self.clustermodel
-        clusters = self.clusters
-        
-        #clustermodel.predict([view]) returns the index for list clustermodel.cluster_centers_
-        prediction = clustermodel.cluster_centers_[clustermodel.predict([view])][0]
-        choice = random.sample(list(clusters[str(prediction)]), 1)
-        return choice
-    
-    def train(self, dset):
+        Returns
+        ---------
+        distance : ndarray
+            Distance scalar
         """
-         Perform Mean shift clustering.
-         Calculates and saves cluster_centers into self.clustermodel.cluster_centers_
-         to be used by a predict-function 
+        return np.sum((x_1 - x_2) ** 2, axis=1)
 
-         Parameters
-         ---------
-         dset: array-like of shape (n_samples, n_features)
-             Samples to cluster.
+    def fit(self, dset):
+        """
+        Storing the training set's speed for separate class predictions.
+        """
+        self.X = dset[:]["views"]
+        self.y = dset[:]["actions"]
 
-         Returns
-         ---------
-         None
+    def predict(self, view, k):
 
-         """
+        """
+        Predict the class of a data point by majority voting principle.
 
-        clustermodel = self.clustermodel
-        clusters = self.clusters
-        
-        actions = dset[:]["actions"]
-        views = dset[:]["views"]
-        
-        #Train 
-        clustermodel.fit(views)
-        
-        #collect clustercenters as dictionary
-        for center in clustermodel.cluster_centers_:
-            clusters[str(center)] = []
-        
-        #assign data to clustercenters
-        for point in dset:
-            prediction = clustermodel.cluster_centers_[clustermodel.predict([point["views"]])][0]
-            clusters[str(prediction)] += [point["actions"]]
+        Parameters
+        ---------
+        view : array_like
+            Test or created by TrackGeneratorGymRaycast datapoint
+
+        k : int
+            The number of k nearest neighbors to be used to determine a class of test datapoint
+
+        Returns
+        ---------
+        predictions : list
+            predicted speed/turn as the mean value of k closest points
+        """
+        # getting distance for each prticular data point
+        distances = self.euclidean_distance(self.X, view)
+        # getting indexes of k first minimal elements
+        idx = np.argpartition(distances, self.k)[:self.k]
+        # taking labels (views) by indexes
+        votes = self.y[idx]
+        # mean for speed and turn
+        prediction = np.mean(votes, axis=0)
+        return prediction[0], prediction[1]
