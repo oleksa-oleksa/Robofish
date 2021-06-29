@@ -7,7 +7,7 @@ import robofish.io
 import random
 
 
-class EMAlgorithmFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
+class EMAlgorithmStochasticFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
     """
     Representation of a Gaussian mixture model probability distribution.
     GMMs are probabilistic models that assume all the data points are generated
@@ -87,38 +87,7 @@ class EMAlgorithmFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
 
         # -----
 
-        # turn correction for walls avoidance
-        turn = self.avoid_walls(view, turn)
-
         return speed, turn
-
-    def avoid_walls(self, view, turn):
-        """
-        Forces to turn a fish in a random direction
-        if in a view's raycast of the walls
-        a wall in the front of a fish is detected to near
-
-        Parameters
-        ---------
-        view : array_like
-            The observations of the virtual fish
-        turn : float
-            Turn predicted by a model that is to modify
-
-        Returns
-        ---------
-        turn : float
-            Original or modified turn depending on the wall distance
-        """
-        param = random.randint(-5, 5)
-
-        if param == 0:
-            param = random.randint(5, 11)
-
-        if view[6] > 0.9:
-            return param * np.pi
-        else:
-            return turn
 
     def fit(self, dset):
         """

@@ -18,33 +18,7 @@ class KNNFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
 
         speed, turn = self.predict(view, self.k)
 
-        turn = self.avoid_walls(view, turn)
-
         return speed, turn
-
-    def avoid_walls(self, view, turn):
-        """
-        Forces to turn a fish in a given direction
-        if in a view's raycast of the walls
-        a wall in the front of a fish is detected to near
-
-        Parameters
-        ---------
-        view : array_like
-            The observations of the virtual fish
-        turn : float
-            Turn predicted by a model that is to modify
-
-        Returns
-        ---------
-        turn : float
-            Original or modified turn depending on the wall distance
-        """
-
-        if view[6] > 0.9:
-            return 5 * np.pi
-        else:
-            return turn
 
     def euclidean_distance(self, x_1, x_2):
         """
