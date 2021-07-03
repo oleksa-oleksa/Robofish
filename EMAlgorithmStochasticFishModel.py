@@ -20,7 +20,7 @@ class EMAlgorithmStochasticFishModel(fish_models.gym_interface.AbstractRaycastBa
 
     def __init__(self):
         self.model = GaussianMixture(
-            n_components=16, covariance_type="full", tol=0.01, max_iter=1000
+            n_components=16, covariance_type="full", tol=0.01, max_iter=20
         )
         self.clusters = {}
 
