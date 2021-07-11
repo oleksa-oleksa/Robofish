@@ -227,8 +227,7 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
         self.speed_bins = speed_bins
         self.turn_bins = turn_bins
         self.losses = []
-        self.mean_loses = []
-
+        self.mean_losses = []
         self.deep_model = ResNet(ResNetBlock, N=1, batch_size=batch_size)
 
     def predict_proba(self, view: np.ndarray):
@@ -298,12 +297,8 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
             test_dset:
                 An IoDataset
             optimizer:
-
-
-
         """
 
-        self.poses_storage = []
         train_loader = torch.utils.data.DataLoader(
             dset,
             collate_fn=fish_models.datasets.io_dataset.IODatasetPytorchDataloaderCollateFN(
@@ -335,7 +330,7 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
                 if cuda:
                     x, y = x.cuda(), y.cuda()
 
-                output = model.deep_model(x)
+                output = self.deep_model(x)
                 loss = criterion(output[:, :n_speed_bins], y[:, 0]) + criterion(output[:, n_speed_bins:], y[:, 1])
                 loss.backward()
                 optimizer.step()
@@ -356,7 +351,7 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
                     f'\rEpoch: {epoch:2}/{max_epochs:2} Step: {batch_idx:2}/{batch_total:2} Loss: {loss.item():10.6f} Acc: {acc:10.2%} ')
 
             checkpoint = {
-                'model_state_dict': model.deep_model.state_dict(),
+                'model_state_dict': self.deep_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
                 'losses': losses
