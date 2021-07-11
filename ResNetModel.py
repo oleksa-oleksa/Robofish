@@ -11,22 +11,6 @@ import fish_models
 
 modelfilename = 'model.pth'
 
-# Test training
-n_training_iterations = 10
-n_files = 5
-n_timesteps = None
-n_speed_bins = 21
-n_turn_bins = 21
-n_view_bins = 5
-n_timesteps_simulation = 2000
-batch_size = 64
-n_epochs = 50
-fishes = 2
-
-# IO Files in cm, actions in m/s
-data_folder = Path("data/live_female_female/train")
-test_data_folder = Path("data/live_female_female/test")
-
 """
 This model uses a deep convolutional neural network in order to later predict 
 a speed/turn bin for a given view.
@@ -34,7 +18,7 @@ a speed/turn bin for a given view.
 
 
 class ResNetBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels, out_channels):
         """
         ResNet inner block with skip connection (residual blocks)
         Residual blocks allow the flow of memory (or information) from initial layers to last layers.
@@ -136,7 +120,10 @@ class ResNet(nn.Module):
         self.start_identity = None
         self.batch_small = 2
         self.N = N
-        self.batch_size = batch_size
+        self.batch_size = 64
+        self.n_speed_bins = 21
+        self.n_turn_bins = 21
+        self.n_view_bins = 5
 
         # Begin
         self.conv1 = nn.Conv1d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
@@ -154,7 +141,7 @@ class ResNet(nn.Module):
         # End
         self.conv_end = nn.Conv1d(in_channels=16, out_channels=1, kernel_size=3, stride=1, padding=1)
         self.flt_end = nn.Flatten()
-        self.fc_end = nn.Linear(in_features=10, out_features=n_speed_bins + n_turn_bins)
+        self.fc_end = nn.Linear(in_features=10, out_features=self.n_speed_bins + self.n_turn_bins)
         self.double()
 
     def forward(self, x):
@@ -216,19 +203,23 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
 
-class ResNetFishModel(fish_models.gym_interface.AbstractModel):
-    def __init__(self, speed_bins, turn_bins):
+class ResNetModel(fish_models.gym_interface.AbstractModel):
+    def __init__(self, speed_bins, turn_bins, batch_size=64):
         """ResNet (Residual Network) deep convolutional neural network,
 
         Args:
-            speed_bins: The array with the float borders between speed bins
-            turn_bins: The array with the float borders between turn bins
+            speed_bins:
+                The array with the float borders between speed bins
+            turn_bins:
+                The array with the float borders between turn bins
+            batch_size=64
         """
         self.speed_bins = speed_bins
         self.turn_bins = turn_bins
         self.losses = []
         self.mean_losses = []
-        self.deep_model = ResNet(ResNetBlock, N=1, batch_size=batch_size)
+        self.batch_size = batch_size
+        self.deep_model = ResNet(ResNetBlock, N=1, batch_size=self.batch_size)
 
     def predict_proba(self, view: np.ndarray):
         """
@@ -284,9 +275,9 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
         speed += np.random.random() * np.diff(self.speed_bins)[0]
         turn += np.random.random() * np.diff(self.turn_bins)[0]
 
-        return [speed, turn]
+        return speed, turn
 
-    def train(self, dset, test_dset, optimizer, criterion, max_epochs):
+    def train(self, dset, optimizer, criterion, max_epochs):
 
         """
         Binarize the binned actions and train the classifier
@@ -304,14 +295,7 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
             collate_fn=fish_models.datasets.io_dataset.IODatasetPytorchDataloaderCollateFN(
                 ["views", "actions_binned"], [torch.float64, torch.long]
             ),
-            batch_size=batch_size
-        )
-        test_loader = torch.utils.data.DataLoader(
-            test_dset,
-            collate_fn=fish_models.datasets.io_dataset.IODatasetPytorchDataloaderCollateFN(
-                ["views", "actions_binned"], [torch.float64, torch.long]
-            ),
-            batch_size=batch_size
+            batch_size=self.batch_size
         )
 
         losses = []
@@ -331,12 +315,12 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
                     x, y = x.cuda(), y.cuda()
 
                 output = self.deep_model(x)
-                loss = criterion(output[:, :n_speed_bins], y[:, 0]) + criterion(output[:, n_speed_bins:], y[:, 1])
+                loss = criterion(output[:, :self.deep_model.n_speed_bins], y[:, 0]) + criterion(output[:, self.deep_model.n_speed_bins:], y[:, 1])
                 loss.backward()
                 optimizer.step()
 
-                yhat1 = torch.argmax(output[:, :n_speed_bins], dim=1)
-                yhat2 = torch.argmax(output[:, n_speed_bins:], dim=1)
+                yhat1 = torch.argmax(output[:, :self.deep_model.n_speed_bins], dim=1)
+                yhat2 = torch.argmax(output[:, self.deep_model.n_speed_bins:], dim=1)
                 samples_total = 2 * len(y)
                 samples_correct += torch.sum(yhat1 == y[:, 0])
                 samples_correct += torch.sum(yhat2 == y[:, 1])
@@ -350,6 +334,8 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
                 sys.stdout.write(
                     f'\rEpoch: {epoch:2}/{max_epochs:2} Step: {batch_idx:2}/{batch_total:2} Loss: {loss.item():10.6f} Acc: {acc:10.2%} ')
 
+            """
+            # Uncomment this block to save model
             checkpoint = {
                 'model_state_dict': self.deep_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -358,6 +344,7 @@ class ResNetFishModel(fish_models.gym_interface.AbstractModel):
             }
             self.savemodel(checkpoint)
 
+            """
         print('\nFinished Training')
         self.losses = losses
         self.mean_losses = mean_losses
