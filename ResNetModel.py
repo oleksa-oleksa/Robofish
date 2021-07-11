@@ -1,28 +1,15 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 import torch
 import os
-import time
-import math
 import sys
-from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffle
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.autograd import grad
-from torch.nn import Parameter
 cuda = torch.cuda.is_available()
 import pickle as pk
-import torch.optim as optim
 import torch.nn as nn
-import torch.optim as optim
-from collections import OrderedDict
-from torchvision.transforms import transforms
-from typing import Union,Tuple
+from typing import Tuple
 import fish_models
-from fish_models import utils
-import robofish.io
+
+modelfilename = 'model.pth'
 
 # Test training
 n_training_iterations = 10
@@ -227,3 +214,166 @@ class ResNet(nn.Module):
 
         print(f'Extern loop END')
         return nn.Sequential(*layers)
+
+
+class ResNetFishModel(fish_models.gym_interface.AbstractModel):
+    def __init__(self, speed_bins, turn_bins):
+        """ResNet (Residual Network) deep convolutional neural network,
+
+        Args:
+            speed_bins: The array with the float borders between speed bins
+            turn_bins: The array with the float borders between turn bins
+        """
+        self.speed_bins = speed_bins
+        self.turn_bins = turn_bins
+        self.losses = []
+        self.mean_loses = []
+
+        self.deep_model = ResNet(ResNetBlock, N=1, batch_size=batch_size)
+
+    def predict_proba(self, view: np.ndarray):
+        """
+        Returns the output of our neural network for a given input.
+
+        Parameters
+        ---------
+        view : np.array
+            view data we want to process.
+
+        Returns
+        ---------
+        Arrays of Propabilities for speed bins and turn bins concatenated
+
+        Example:
+        For n_fish_bins = n_wall_bins = 3 and n_speed_bins = n_turn_bins = 2
+        The input looks like [0.2,0.9,0,0,0.4,0.2]
+            where fish_bins = (0.2,0.9,0) and wall_bins = (0,0.4,0.2)
+        and the output looks like [0.8,0.2,-0.1,0.7]
+            where the propabilities for speed_bins = (0.8,0.2) and turn_bins = (-0.1,0.7).
+            Note that these are not yet normalized and will be done so later on.
+        """
+        tensor_proba = torch.tensor(np.array([view])).double()
+        tensor_proba = tensor_proba.squeeze(1)
+        output = self.deep_model(tensor_proba)
+        return output.detach().numpy()
+
+    def choose_action(self, view: np.ndarray) -> Tuple[float, float]:
+        """
+        Parameters
+        ---------
+        view : np.ndarray
+            view data we want to process.
+
+        Returns
+        ---------
+        Tuple of speed and turn values.
+        """
+        probabilities = self.predict_proba([view])
+        speed_probabilities = probabilities[0, : len(self.speed_bins)]
+        turn_probabilities = probabilities[0, len(self.speed_bins):]
+
+        speed_probabilities += np.abs(np.min(speed_probabilities))
+        turn_probabilities += np.abs(np.min(turn_probabilities))
+
+        speed_probabilities /= np.sum(speed_probabilities)
+        turn_probabilities /= np.sum(turn_probabilities)
+
+        speed = np.random.choice(self.speed_bins, p=speed_probabilities)
+        turn = np.random.choice(self.turn_bins, p=turn_probabilities)
+
+        # Double sampling (sample inside the chosen bin)
+        speed += np.random.random() * np.diff(self.speed_bins)[0]
+        turn += np.random.random() * np.diff(self.turn_bins)[0]
+
+        return [speed, turn]
+
+    def train(self, dset, test_dset, optimizer, criterion, max_epochs):
+
+        """
+        Binarize the binned actions and train the classifier
+
+        Args:
+            dset:
+                An IoDataset with at least output_strings ["actions_binned", "views"]
+            test_dset:
+                An IoDataset
+            optimizer:
+
+
+
+        """
+
+        self.poses_storage = []
+        train_loader = torch.utils.data.DataLoader(
+            dset,
+            collate_fn=fish_models.datasets.io_dataset.IODatasetPytorchDataloaderCollateFN(
+                ["views", "actions_binned"], [torch.float64, torch.long]
+            ),
+            batch_size=batch_size
+        )
+        test_loader = torch.utils.data.DataLoader(
+            test_dset,
+            collate_fn=fish_models.datasets.io_dataset.IODatasetPytorchDataloaderCollateFN(
+                ["views", "actions_binned"], [torch.float64, torch.long]
+            ),
+            batch_size=batch_size
+        )
+
+        losses = []
+        mean_losses = []
+        batch_total = len(train_loader)
+
+        for epoch in range(max_epochs):
+            samples_total = 0
+            samples_correct = 0
+            test_samples_total = 0
+            test_samples_correct = 0
+            for batch_idx, batch in enumerate(train_loader):
+                optimizer.zero_grad()
+                x, y = batch
+
+                if cuda:
+                    x, y = x.cuda(), y.cuda()
+
+                output = model.deep_model(x)
+                loss = criterion(output[:, :n_speed_bins], y[:, 0]) + criterion(output[:, n_speed_bins:], y[:, 1])
+                loss.backward()
+                optimizer.step()
+
+                yhat1 = torch.argmax(output[:, :n_speed_bins], dim=1)
+                yhat2 = torch.argmax(output[:, n_speed_bins:], dim=1)
+                samples_total = 2 * len(y)
+                samples_correct += torch.sum(yhat1 == y[:, 0])
+                samples_correct += torch.sum(yhat2 == y[:, 1])
+
+                losses.append(loss.item())
+                mean_losses.append(np.mean(losses))
+
+                if batch_idx % 50 == 0:
+                    acc = float(samples_correct) / float(samples_total)
+
+                sys.stdout.write(
+                    f'\rEpoch: {epoch:2}/{max_epochs:2} Step: {batch_idx:2}/{batch_total:2} Loss: {loss.item():10.6f} Acc: {acc:10.2%} ')
+
+            checkpoint = {
+                'model_state_dict': model.deep_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'epoch': epoch,
+                'losses': losses
+            }
+            self.savemodel(checkpoint)
+
+        print('\nFinished Training')
+        self.losses = losses
+        self.mean_losses = mean_losses
+
+        return losses, mean_losses
+
+    def savemodel(self, checkpoint):
+        """
+                Saves this class in a file so progress in training isn't lost.
+                """
+        checkpoint_path = os.path.join(modelfilename)
+        with open(checkpoint_path, 'wb') as f:
+            pk.dump(checkpoint, f)
+
