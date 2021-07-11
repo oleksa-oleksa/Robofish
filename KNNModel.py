@@ -2,7 +2,7 @@ import fish_models
 import numpy as np
 
 
-class KNNFishModel(fish_models.gym_interface.AbstractRaycastBasedModel):
+class KNNModel(fish_models.gym_interface.AbstractModel):
     """
     kNN classifier determines the class of a data point by majority voting principle.
 
